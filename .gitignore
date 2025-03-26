@@ -1,0 +1,6 @@
+scraping_env/*
+data/*
+
+# Pero NO ignorar las carpetas en sí
+!data/.gitkeep
+
