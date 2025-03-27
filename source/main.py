@@ -1,33 +1,10 @@
 import argparse
 from datetime import datetime
 from mitecoEmbalsesScraper import MitecoEmbalsesScraper
+from validadorFechas import ValidadorFechas  # Importamos la nueva clase
 
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-
-def validar_fechas(start_date, end_date):
-    """
-    Verifica que la fecha de fin no sea mayor que la fecha actual y que sea posterior a la fecha de inicio.
-
-    Parámetros:
-    - start_date (str): Fecha de inicio en formato 'dd/mm/YYYY'.
-    - end_date (str): Fecha de fin en formato 'dd/mm/YYYY'.
-
-    Retorna:
-    - bool: True si las fechas son válidas, False en caso contrario.
-    """
-    fecha_inicio = datetime.strptime(start_date, "%d/%m/%Y")
-    fecha_fin = datetime.strptime(end_date, "%d/%m/%Y")
-    fecha_actual = datetime.today()
-
-    if fecha_fin < fecha_inicio:
-        print("❌ Error: La fecha de fin no puede ser anterior a la fecha de inicio.")
-        return False
-    if fecha_fin > fecha_actual:
-        print("❌ Error: La fecha de fin no puede ser mayor que la fecha actual.")
-        return False
-    return True
 
 def main():
     parser = argparse.ArgumentParser(description="Scraper de embalses del MITECO")
@@ -38,7 +15,11 @@ def main():
     
     args = parser.parse_args()
 
-    if not validar_fechas(args.start_date, args.end_date):
+    if not ValidadorFechas.validar_formato_fecha(args.start_date) or not ValidadorFechas.validar_formato_fecha(args.end_date):
+        print("❌ Error: Las fechas deben tener el formato 'dd/mm/YYYY'.")
+        return 1
+
+    if not ValidadorFechas.validar_fechas(args.start_date, args.end_date):
         print("❌ La aplicación no permite consultar datos con fechas errorenas.")
         return 1
     
