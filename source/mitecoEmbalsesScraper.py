@@ -11,11 +11,13 @@ class MitecoEmbalsesScraper:
     y guarda los datos en archivos CSV semanales.
     """
 
-    def __init__(self, start_date, end_date, output_dir="data"):
+    def __init__(self, start_date, end_date, save="S", output_dir="data"):
         self.url = "https://sede.miteco.gob.es/BoleHWeb/bolehSRV"
         self.output_dir = output_dir
         self.start_date = datetime.strptime(start_date, "%d/%m/%Y")
         self.end_date = datetime.strptime(end_date, "%d/%m/%Y")
+        self.save = save
+        self.datos_acumulados = []
         self.demarcaciones = {
             "Cantabrico Oriental": "17",
             "Cantabrico Occidental": "12", 
@@ -58,17 +60,20 @@ class MitecoEmbalsesScraper:
 
 
     def obtener_ultima_semana_con_datos(self):
+        """
+        Obtiene la última semana con datos disponibles desde el servicio del MITECO.
+
+        Retorna:
+            tuple or bool: 
+                - Si encuentra datos, retorna una tupla con (número_semana, año).
+                - Si no encuentra datos, retorna False.
+        """
         data = {"date": self.end_date.strftime("%d/%m/%Y")}
-        print(data)
         response = requests.post(self.url, data=data, headers=self.get_headers(), verify=False)
         
-        print(response.status_code)
-
         if response.status_code == 200:
             soup = BeautifulSoup(response.text, "html.parser")
-            #print(soup)
             tabla = next((table for table in soup.find_all('table') if 'NÚMERO' in table.get_text()), None)
-            #print(tabla)
 
             if tabla:
                 celda = soup.find("td", class_="tdblanco", align="center")
@@ -76,10 +81,6 @@ class MitecoEmbalsesScraper:
                     texto = celda.get_text(separator=" ").strip()
                     match = re.search(r"NÚMERO\s+(\d+)\s+AÑO\s+(\d{4})", texto)
                     if match:
-                        ultima_semana = int(match.group(1))
-                        ultimo_anio = int(match.group(2))
-                        print(f"La última semana con datos es la {ultima_semana} del año {ultimo_anio}")
-                        #print(match.group(1), match.group(2))
                         return int(match.group(1)), int(match.group(2))
 
                 return True
@@ -87,50 +88,124 @@ class MitecoEmbalsesScraper:
 
     def ajustar_fecha_fin(self):
         """
-        Ajusta end_date si es posterior a la última semana con datos disponibles.
+        Ajusta la fecha de fin si es posterior a la última semana con datos disponibles.
         
-        :param ultima_semana: Última semana con datos disponibles (formato número de semana).
-        :param ultimo_ano: Último año con datos disponibles.
+        Utiliza los datos obtenidos de `obtener_ultima_semana_con_datos` para limitar
+        la fecha de fin del scraping a la última semana con datos válidos.
         """
-
         ultima_semana, ultimo_ano = self.obtener_ultima_semana_con_datos()
 
         # Convertir la última semana con datos en una fecha real
         fecha_ultima_semana = datetime.strptime(f"{ultimo_ano}-{ultima_semana}-1", "%Y-%W-%w")
-        #fecha_ultima_semana = self.obtener_fecha_lunes(ultimo_ano, ultima_semana)
-        print(fecha_ultima_semana)
-
         if self.end_date > fecha_ultima_semana:
             print(f"⚠️ Advertencia: La fecha de fin {self.end_date.strftime('%d/%m/%Y')} es posterior a la última semana con datos ({fecha_ultima_semana.strftime('%d/%m/%Y')}). Se ajustará automáticamente.")
             self.end_date = fecha_ultima_semana
 
 
     def obtener_datos_semanales(self):
+        """
+        Ejecuta el proceso de scraping para cada semana en el rango de fechas configurado.
+        
+        Itera semana a semana desde la fecha de inicio hasta la fecha de fin (ajustada),
+        generando un archivo CSV por semana con los datos de los embalses.
+        """
         fecha_actual = self.start_date
         while fecha_actual <= self.end_date:
             fecha_str = fecha_actual.strftime("%d/%m/%Y")
             semana = fecha_actual.isocalendar()[1]  # El índice 1 es el número de semana
-            print(fecha_str, semana)
-            archivo = f"{self.output_dir}/embalses_{fecha_actual.year}_{semana}.csv"
-            self.scrapear_fecha(fecha_str, archivo, fecha_actual.year, semana)
+            archivo = f"../{self.output_dir}/embalses_{fecha_actual.year}_{semana}.csv"
+            self.scrapear_boletin(fecha_str, archivo, fecha_actual.year, semana)
             fecha_actual += timedelta(weeks=1)
 
-    def scrapear_fecha(self, fecha, archivo, anio, semana):
+    def scrapear_boletin(self, fecha, archivo, anio, semana):
+        """
+        Procesa el boletín hidrológico de una fecha específica.
+
+        Parámetros:
+            fecha (str): Fecha en formato 'dd/mm/yyyy' a consultar.
+            archivo (str): Ruta del archivo CSV donde se guardarán los datos.
+            anio (int): Año actual del proceso de scraping.
+            semana (int): Número de semana actual del proceso de scraping.
+
+        Efectos secundarios:
+            - Imprime mensajes de progreso en consola.
+            - Llama a `guardar_o_acumular` para almacenar los datos.
+        """
         datos = []
         for clave, valor in self.demarcaciones.items():
-            btn = f"btnMod_Reserva_Hidraulica_Datos_{valor}_X17"
-            valorBtn = f"btnMod_Reserva_Hidraulica_Datos_{valor}"
-            data = {"xVal": 17, "fechaCalendario": fecha, btn: valorBtn}
-            response = requests.post(self.url, data=data, headers=self.get_headers(), verify=False)
+            response = self.preparar_request(fecha, clave, valor)
             
             if response.status_code == 200:
                 self.procesar_respuesta(response.text, datos, clave, anio, semana)
+                print(f"Procesando datos de {clave}: response:{response.status_code}, año:{anio}, semana:{semana}")
             else:
                 print(f"Error al obtener datos de {clave}: {response.status_code}")
         
-        self.guardar_datos(datos, archivo)
+        self.guardar_o_acumular(datos, archivo)
+
+    def guardar_o_acumular(self,datos,archivo):
+        """
+        Decide si guardar los datos en un archivo CSV o acumularlos en memoria.
+
+        Parámetros:
+            datos (list): Lista de diccionarios con datos de embalses.
+            archivo (str): Ruta del archivo CSV para guardar (si save='S').
+        """
+        if datos:
+            self.datos_acumulados.extend(datos)
+            if self.save == "S":
+                df = pd.DataFrame(datos)
+                df.to_csv(archivo, index=False, encoding='utf-8')
+                print(f"✅ Datos guardados en '{archivo}'")
+            else:
+                print(f"⏭️ Datos acumulados al fichero final")
+        else:
+            print("❌ No se encontraron datos")
+
+    def guardar_datos_acumulados(self):
+        """
+        Guarda todos los datos acumulados en un único archivo CSV.
+
+        Solo se ejecuta si el parámetro `save` fue configurado como 'A' (acumular).
+        El archivo se guarda en `output_dir` con el nombre 'embalses_acumulado.csv'.
+        """
+        archivo = f"../{self.output_dir}/embalses_acumulado.csv"
+        if self.save == "A":
+            df = pd.DataFrame(self.datos_acumulados)
+            df.to_csv(archivo, index=False, encoding='utf-8')
+            print(f"✅ Datos guardados en '{archivo}'")     
+
+    def preparar_request(self, fecha, clave, valor):
+        """
+        Prepara y envía una petición POST al servicio del MITECO.
+
+        Parámetros:
+            fecha (str): Fecha en formato 'dd/mm/yyyy'.
+            clave (str): Nombre de la demarcación hidrográfica.
+            valor (str): Código numérico de la demarcación.
+
+        Retorna:
+            Response: Objeto Response de la librería requests.
+        """
+        btn = f"btnMod_Reserva_Hidraulica_Datos_{valor}_X17"
+        valorBtn = f"btnMod_Reserva_Hidraulica_Datos_{valor}"
+        data = {"xVal": 17, "fechaCalendario": fecha, btn: valorBtn}
+        response = requests.post(self.url, data=data, headers=self.get_headers(), verify=False)
+
+        return response
+
 
     def procesar_respuesta(self, html, datos, clave, anio, semana):
+        """
+        Procesa el HTML de respuesta para extraer datos de embalses.
+
+        Parámetros:
+            html (str): Contenido HTML de la respuesta.
+            datos (list): Lista donde se acumularán los datos extraídos.
+            clave (str): Nombre de la demarcación hidrográfica.
+            anio (int): Año actual del proceso de scraping.
+            semana (int): Número de semana actual del proceso de scraping.
+        """
         soup = BeautifulSoup(html, "html.parser")
         tabla = next((table for table in soup.find_all('table') if 'Embalsada (hm' in table.get_text()), None)
         
@@ -155,6 +230,7 @@ class MitecoEmbalsesScraper:
         else:
             print(f"No se encontró la tabla para {clave} en la semana {semana}")
 
+    '''
     def guardar_datos(self, datos, archivo):
         if datos:
             df = pd.DataFrame(datos)
@@ -162,3 +238,4 @@ class MitecoEmbalsesScraper:
             print(f"✅ Datos guardados en '{archivo}'")
         else:
             print("❌ No se encontraron datos.")
+    '''

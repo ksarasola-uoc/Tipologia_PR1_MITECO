@@ -33,6 +33,7 @@ def main():
     parser = argparse.ArgumentParser(description="Scraper de embalses del MITECO")
     parser.add_argument("start_date", type=str, help="Fecha de inicio en formato DD/MM/YYYY")
     parser.add_argument("end_date", type=str, help="Fecha de fin en formato DD/MM/YYYY")
+    parser.add_argument("--save", type=str, default="S", help="S guardar ficheros separados o A para acumulado en un fichero")
     parser.add_argument("--output", type=str, default="data", help="Directorio de salida para los archivos CSV")
     
     args = parser.parse_args()
@@ -41,10 +42,11 @@ def main():
         print("❌ La aplicación no permite consultar datos con fechas errorenas.")
         return 1
     
-    scraper = MitecoEmbalsesScraper(args.start_date, args.end_date, args.output)
+    scraper = MitecoEmbalsesScraper(args.start_date, args.end_date, args.save, args.output)
     
     scraper.ajustar_fecha_fin()
     scraper.obtener_datos_semanales()
+    scraper.guardar_datos_acumulados()
 
 if __name__ == "__main__":
     main()
