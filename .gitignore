@@ -4,3 +4,8 @@ data/*
 # Pero NO ignorar las carpetas en sí
 !data/.gitkeep
 
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+

@@ -181,7 +181,7 @@ class MitecoEmbalsesScraper:
         archivo = f"../{self.output_dir}/embalses_acumulado.csv"
         if self.save == "A":
             df = pd.DataFrame(self.datos_acumulados)
-            df.to_csv(archivo, index=False, encoding='utf-8')
+            df.to_csv(archivo, index=False, encoding='utf-8-sig')
             print(f"✅ Datos guardados en '{archivo}'")     
 
     def preparar_request(self, fecha, clave, valor):
