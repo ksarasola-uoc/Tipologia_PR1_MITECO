@@ -1,6 +1,8 @@
 import requests
 import pandas as pd
 import re
+import time
+import random
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 
@@ -18,6 +20,7 @@ class MitecoEmbalsesScraper:
         self.end_date = datetime.strptime(end_date, "%d/%m/%Y")
         self.save = save
         self.datos_acumulados = []
+        self.delay = 10
         self.demarcaciones = {
             "Cantabrico Oriental": "17",
             "Cantabrico Occidental": "12", 
@@ -37,6 +40,11 @@ class MitecoEmbalsesScraper:
             "Cuencas Internas de Cataluña": "10"   
         }
 
+    def esperar_crawl_delay(self):
+        """Espera el tiempo especificado en Crawl-delay del archivo robots.txt"""
+        delay = self.delay + random.uniform(0, 2)  # Pequeña variación aleatoria para evitar patrones detectables
+        print(f"Esperando {delay:.2f} segundos antes de la siguiente solicitud...")
+        time.sleep(delay)
 
     def get_headers(self):
         """
@@ -133,6 +141,7 @@ class MitecoEmbalsesScraper:
         """
         datos = []
         for clave, valor in self.demarcaciones.items():
+            self.esperar_crawl_delay()
             response = self.preparar_request(fecha, clave, valor)
             
             if response.status_code == 200:
